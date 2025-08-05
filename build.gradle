@@ -1,20 +1,94 @@
 plugins {
     id 'groovy'
+    id 'org.springframework.boot' version '3.5.4'
+    id 'io.spring.dependency-management' version '1.1.4'
+    id 'org.beryx.jlink' version '3.1.1'
 }
 
 group = 'com.ericsantanna'
 version = '1.0-SNAPSHOT'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
 
 repositories {
     mavenCentral()
 }
 
 dependencies {
-    implementation 'org.apache.groovy:groovy:4.0.14'
-    testImplementation platform('org.junit:junit-bom:5.10.0')
-    testImplementation 'org.junit.jupiter:junit-jupiter'
+    implementation('org.apache.groovy:groovy:4.0.14')
+    implementation('org.springframework.boot:spring-boot-starter-webflux') {
+        exclude group: 'org.springframework.boot', module: 'spring-boot-starter-tomcat'
+//        exclude group: 'org.springframework.boot', module: 'spring-boot-starter-logging'
+    }
+//    implementation 'ch.qos.logback:logback-classic:1.4.14'
+//    implementation 'ch.qos.logback:logback-core:1.4.14'
+    implementation('io.projectreactor.netty:reactor-netty')
+    implementation 'org.gebish:geb-core:7.0'
+    implementation 'org.seleniumhq.selenium:selenium-firefox-driver:4.20.0'
+    implementation 'org.seleniumhq.selenium:selenium-support:4.20.0'
 }
 
 test {
     useJUnitPlatform()
 }
+
+jar {
+    manifest {
+        attributes 'Main-Class': 'com.ericsantanna.baixaNotas.Main'
+    }
+}
+
+//jlink {
+//    options = ['--strip-debug', '--compress', '2', '--no-header-files', '--no-man-pages']
+//    launcher {
+//        name = 'baixa-notas-chiquinho'
+//        jvmArgs = ['-Dspring.profiles.active=default']
+//        mainClass = 'com.ericsantanna.baixaNotas.Main'
+//    }
+////    mergedModule {  } = ['groovy.all']
+//    forceMerge('log4j-api')
+//    forceMerge('groovy')
+//    forceMerge('groovy-all')
+//    forceMerge('picocli')
+//    forceMerge('picocli-groovy')
+//    forceMerge('jackson-core')
+//    forceMerge('jackson-databind')
+//    forceMerge('jackson-annotations')
+//    forceMerge('jackson-dataformat-yaml')
+//    forceMerge('jackson-dataformat-properties')
+//    forceMerge('jackson-dataformat-cbor')
+//    forceMerge('jackson-dataformat-xml')
+//    forceMerge('jackson-dataformat-csv')
+//    forceMerge('junit-jupiter-api')
+//    forceMerge('junit-jupiter-engine')
+//    forceMerge('junit-platform-commons')
+//    forceMerge('junit-platform-engine')
+//    forceMerge('junit-platform-launcher')
+//    forceMerge('junit-platform-suite-api')
+//    forceMerge('junit-platform-suite-engine')
+//    forceMerge('opentest4j')
+//    forceMerge('groovy')
+//    forceMerge('groovy-xml')
+//    forceMerge('groovy-json')
+//    forceMerge('groovy-sql')
+//    forceMerge('groovy-nio')
+//    forceMerge('groovy-jsr223')
+//    forceMerge('groovy-dateutil')
+//    forceMerge('groovy-cli-picocli')
+//    forceMerge('groovy-templates')
+//    forceMerge('groovy-groovydoc')
+//    forceMerge('groovy-ant')
+//    forceMerge('groovy-test')
+//    forceMerge('groovy-test-junit5')
+//    forceMerge('groovy-console')
+//    forceMerge('groovy-servlet')
+//    forceMerge('groovy-swing')
+//    forceMerge('groovy-jmx')
+//    forceMerge('groovy-macro')
+//    forceMerge('groovy-groovysh')
+//    forceMerge('groovy-docgenerator')
+//    forceMerge('groovy-datetime')
+//}

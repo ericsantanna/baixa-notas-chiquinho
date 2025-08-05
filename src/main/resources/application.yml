@@ -1,0 +1,20 @@
+spring:
+  application:
+    name: baixa-notas-chiquinho
+server:
+  port: 8080
+  netty:
+    connection-timeout: 5s
+#logging:
+#  level:
+#    root: INFO
+#    com.ericsantanna: DEBUG
+#  pattern:
+#    console: "%d{yyyy-MM-dd HH:mm:ss} - %logger{36} - %msg%n"
+baixa-notas:
+  root-dir: /tmp/notas-fiscais
+  download-dir: /tmp/baixaNotas
+  usuario:
+  senha:
+  mes:
+  ano:
