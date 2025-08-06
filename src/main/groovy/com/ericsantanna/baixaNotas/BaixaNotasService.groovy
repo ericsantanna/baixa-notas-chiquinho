@@ -14,19 +14,7 @@ class BaixaNotasService {
     @Value('${baixa-notas.download-dir}')
     String downloadDir
 
-    @Value('${baixa-notas.usuario}')
-    String usuario
-
-    @Value('${baixa-notas.senha}')
-    String senha
-
-    @Value('${baixa-notas.mes}')
-    String mes
-
-    @Value('${baixa-notas.ano}')
-    String ano
-
-    String executar() {
+    String executar(String usuario, String senha, String mes, String ano) {
         CompletableFuture.runAsync { Script.runScript(usuario, senha, mes, ano, rootDir, downloadDir) }
         return "Process started"
     }
