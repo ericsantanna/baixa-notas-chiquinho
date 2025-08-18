@@ -138,8 +138,6 @@ class BaixaNotasChiquinhoAutomation {
                         }
                         sleep(400)
 
-                        throw new RuntimeException("Teste de exceção para verificar o log")
-
                         consultaCupomFiscalPage.anoSelect.click()
                         sleep(400)
                         if (consultaCupomFiscalPage.temAno(ano)) {
