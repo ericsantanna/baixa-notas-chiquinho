@@ -44,5 +44,5 @@ bin/
 src/main/resources/static/
 **/node_modules/
 **/.svelte-kit/
-execucao/
+/execucao/
 /installation/jre/
