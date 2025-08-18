@@ -1,0 +1,10 @@
+spring:
+  application:
+    name: baixa-notas-chiquinho
+  output:
+    ansi:
+      enabled: always
+server:
+  port: 8080
+  netty:
+    connection-timeout: 5s
