@@ -6,7 +6,7 @@ plugins {
 }
 
 group = 'com.ericsantanna'
-version = '1.0-SNAPSHOT'
+version = '1.0'
 
 java {
     sourceCompatibility = JavaVersion.VERSION_21
@@ -22,13 +22,15 @@ dependencies {
     implementation ('org.springframework.boot:spring-boot-starter-webflux') {
         exclude group: 'org.springframework.boot', module: 'spring-boot-starter-tomcat'
     }
+    implementation 'org.springframework.boot:spring-boot-starter-integration'
+    implementation 'org.springframework.integration:spring-integration-webflux'
     implementation 'io.projectreactor.netty:reactor-netty'
     implementation 'org.gebish:geb-core:7.0'
     implementation 'org.seleniumhq.selenium:selenium-firefox-driver:4.20.0'
     implementation "org.seleniumhq.selenium:selenium-chrome-driver:4.35.0"
     implementation 'org.seleniumhq.selenium:selenium-support:4.20.0'
     implementation 'io.github.bonigarcia:webdrivermanager:6.2.0'
-    implementation 'org.springframework.boot:spring-boot-starter-websocket'
+//    implementation 'org.springframework.boot:spring-boot-starter-websocket'
     implementation 'org.apache.groovy:groovy-json:4.0.14'
     implementation 'org.apache.groovy:groovy-yaml:4.0.28'
 }

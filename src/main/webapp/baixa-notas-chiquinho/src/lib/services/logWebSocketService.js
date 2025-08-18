@@ -25,7 +25,7 @@ export class LogWebSocketService {
         
         try {
             console.log('Tentando conectar ao WebSocket de logs...');
-            this.ws = new WebSocket('ws://localhost:8080/logs');
+            this.ws = new WebSocket('ws://localhost:8080/ws/logs');
             
             this.ws.onopen = () => {
                 console.log('Log WebSocket connected');

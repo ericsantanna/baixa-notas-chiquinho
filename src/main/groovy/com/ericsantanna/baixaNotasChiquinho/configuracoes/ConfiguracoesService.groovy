@@ -64,7 +64,7 @@ class ConfiguracoesService {
 
             return configuracoes
         } catch (Exception e) {
-            log.error "Erro ao carregar configurações: ${e.message}. Usando valores padrão.", e
+            log.warn "Erro ao carregar configurações: ${e.message}. Usando valores padrão.", e
             configuracoes.driver = Configuracoes.DEFAULT_DRIVER
             configuracoes.waitingTimeout = Configuracoes.DEFAULT_WAITING_TIMEOUT
             configuracoes.extractionThreads = Configuracoes.DEFAULT_EXTRACTION_THREADS

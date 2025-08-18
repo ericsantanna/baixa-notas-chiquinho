@@ -4,6 +4,19 @@ spring:
   output:
     ansi:
       enabled: always
+  main:
+    web-application-type: reactive
+  webflux:
+    # Don't add any default handlers
+    base-path: /
+    static-path-pattern: /**
+  resources:
+    # Don't add welcome page mappings
+    add-mappings: true
+    chain:
+      # No resource chaining
+      enabled: false
+
 server:
   port: 8080
   netty:
