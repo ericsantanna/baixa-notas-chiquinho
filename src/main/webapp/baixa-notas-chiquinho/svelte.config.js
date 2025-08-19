@@ -11,10 +11,13 @@ const config = {
 			// these options are set automatically — see below
 			pages: releaseFolder,
 			assets: releaseFolder,
-			fallback: undefined,
+			fallback: 'index.html',
 			precompress: false,
 			strict: true
-		})
+		}),
+        prerender: {
+            entries: [],
+        }
 	}
 };
 

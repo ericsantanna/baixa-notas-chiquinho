@@ -22,7 +22,7 @@
         
         try {
             isLoading = true;
-            const response = await fetch('http://localhost:8080/configuracoes');
+            const response = await fetch('http://localhost:8080/api/configuracoes');
             
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
@@ -101,7 +101,7 @@
                 extractionPath: extractionPath.trim()
             };
             
-            const response = await fetch('http://localhost:8080/configuracoes', {
+            const response = await fetch('http://localhost:8080/api/configuracoes', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

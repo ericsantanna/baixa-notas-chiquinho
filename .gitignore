@@ -46,3 +46,5 @@ src/main/resources/static/
 **/.svelte-kit/
 /execucao/
 /installation/jre/
+/installation/execucao/
+/installation/baixa-notas-chiquinho-1.0.jar

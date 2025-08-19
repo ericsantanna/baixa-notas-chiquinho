@@ -26,7 +26,7 @@ export class ExecutionWebSocketService {
         
         try {
             console.log('Tentando conectar ao WebSocket de execução...');
-            this.ws = new WebSocket('ws://localhost:8080/execucao');
+            this.ws = new WebSocket('ws://localhost:8080/ws/execucao');
             
             this.ws.onopen = () => {
                 console.log('Conectado ao servidor via WebSocket');

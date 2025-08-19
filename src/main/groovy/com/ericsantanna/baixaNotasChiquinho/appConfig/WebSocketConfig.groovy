@@ -21,11 +21,11 @@ class WebSocketConfig implements WebSocketConfigurer {
     @Override
     void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
         registry
-                .addHandler(executionStatusWebSocketHandler, "/execucao")
+                .addHandler(executionStatusWebSocketHandler, "/ws/execucao")
                 .setAllowedOrigins("*")
         
         registry
-                .addHandler(logWebSocketHandler, "/logs")
+                .addHandler(logWebSocketHandler, "/ws/logs")
                 .setAllowedOrigins("*")
     }
 }
