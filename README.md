@@ -7,54 +7,75 @@ Este aplicativo automatiza o download e o processamento de notas fiscais do sist
 - Seleciona franquia, mês e ano
 - Faz download dos arquivos XML das notas fiscais
 - Extrai e processa os arquivos baixados
-- Toda configuração é feita via `application.yml`
+- Interface web para configuração e execução
 
-## Configuração
-Edite o arquivo `src/main/resources/application.local.yml` para definir suas credenciais, período e diretórios:
+## Instalação
 
-```yaml
-baixa-notas:
-  root-dir: /tmp/notas-fiscais
-  download-dir: /tmp/baixa-notas
-  usuario: seu-usuario-aqui
-  senha: sua-senha-aqui
-  mes: seu-mes-aqui
-  ano: seu-ano-aqui
-```
+1. Execute o arquivo `installation/instalar.bat` para criar um ícone na área de trabalho.
+2. Ao clicar no ícone, o script `installation/executar.bat` será executado, abrindo o navegador padrão e um terminal com o servidor.
 
-## Build
-Para compilar o aplicativo, execute:
+## Configurações
 
-```
-./gradlew clean bootJar
-```
+Na página de Configurações do aplicativo, você pode:
 
-O JAR executável será gerado em:
+- Escolher o navegador (Firefox ou Chrome) - é necessário ter o navegador já instalado em seu sistema
+- Alterar os diretórios de trabalho, download e extração
+- Definir tempos de espera e número de threads para extração
+- Todas as configurações são salvas automaticamente
 
-```
-build/libs/baixa-notas-chiquinho-1.0-SNAPSHOT.jar
-```
+## Utilização
 
-## Execução
-Para iniciar a aplicação Spring Boot:
+1. Acesse o aplicativo através do ícone criado na área de trabalho
+2. Configure os parâmetros necessários na página Configurações
+3. Na página principal, preencha suas credenciais e selecione o período
+4. Inicie o processo de download e processamento
 
-```
-java -jar build/libs/baixa-notas-chiquinho-1.0-SNAPSHOT.jar --spring.config.location=src/main/resources/application.local.yml
-```
+## Arquivos de Controle
 
-No seu navegador acesse a URL:
+O arquivo `execucao/processados.csv` contém a lista de franqueadoras que já foram processadas. Se você deseja reprocessar alguma franqueadora:
 
-```
-GET http://localhost:9001/executar
-```
+- Apague o arquivo `processados.csv` inteiro para reprocessar todas as franqueadoras
+- OU remova apenas as linhas específicas das franqueadoras que deseja reprocessar
 
-Isso iniciará o processo de automação usando as configurações do `application.yml`.
+## Para Desenvolvedores
 
-## Requisitos
-- Java 21 ou superior
-- Navegador Firefox (para Selenium WebDriver)
+### Pré-requisitos
+- Java 21
+- Node.js e npm
+- Firefox ou Chrome
 
-## Observações
-- Toda a lógica de automação está em `src/main/groovy/com/ericsantanna/baixaNotas/automation/scripts/Script.groovy`.
-- Você pode alterar os diretórios de download e saída, credenciais e período no `application.yml` sem modificar o código.
-- Saídas e logs são gravados nos diretórios configurados.
+### Como construir o projeto
+
+1. Navegue até a pasta do frontend:
+   ```
+   cd src/main/webapp/baixa-notas-chiquinho
+   ```
+
+2. Instale as dependências e construa o frontend:
+   ```
+   npm install
+   npm run build
+   ```
+
+3. Volte para a raiz do projeto e construa o arquivo JAR:
+   ```
+   cd ../../../../
+   ./gradlew clean bootJar
+   ```
+
+4. Copie o arquivo JAR gerado para a pasta de instalação:
+   ```
+   cp build/libs/baixa-notas-chiquinho-1.0-SNAPSHOT.jar installation/
+   ```
+
+### Estrutura do Projeto
+
+- A lógica de automação está em `src/main/groovy/com/ericsantanna/baixaNotasChiquinho/automation/scripts/BaixaNotasChiquinhoAutomation.groovy`
+- A interface web está em `src/main/webapp/baixa-notas-chiquinho`
+- As configurações padrão são definidas em `com.ericsantanna.baixaNotasChiquinho.configuracoes.Configuracoes`
+
+### Observações
+
+- As configurações são armazenadas no arquivo `execucao/config.yaml`
+- Os logs e saídas são gravados nos diretórios configurados
+- O aplicativo utiliza o Selenium WebDriver para automatizar as ações no navegador
