@@ -45,7 +45,7 @@ java -jar build/libs/baixa-notas-chiquinho-1.0-SNAPSHOT.jar --spring.config.loca
 No seu navegador acesse a URL:
 
 ```
-GET http://localhost:8080/executar
+GET http://localhost:9001/executar
 ```
 
 Isso iniciará o processo de automação usando as configurações do `application.yml`.

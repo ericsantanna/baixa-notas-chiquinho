@@ -112,7 +112,7 @@ function createExecutionStore() {
         // API calls
         async fetchStatus() {
             try {
-                const response = await fetch('http://localhost:8080/api/status');
+                const response = await fetch('http://localhost:9001/api/status');
                 const responseJson = await response.json();
                 this.setExecutionStatus(responseJson.status);
                 return responseJson.status;
@@ -124,7 +124,7 @@ function createExecutionStore() {
         
         async fetchFranqueadoras() {
             try {
-                const response = await fetch('http://localhost:8080/api/franqueadoras');
+                const response = await fetch('http://localhost:9001/api/franqueadoras');
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
@@ -146,7 +146,7 @@ function createExecutionStore() {
         
         async executeProcess(usuario, senha, mes, ano) {
             try {
-                const response = await fetch('http://localhost:8080/api/executar', {
+                const response = await fetch('http://localhost:9001/api/executar', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -162,7 +162,7 @@ function createExecutionStore() {
         
         async interruptProcess() {
             try {
-                const response = await fetch('http://localhost:8080/api/interromper', {
+                const response = await fetch('http://localhost:9001/api/interromper', {
                     method: 'POST'
                 });
                 
@@ -183,7 +183,7 @@ function createExecutionStore() {
         
         async cleanup() {
             try {
-                const response = await fetch('http://localhost:8080/api/cleanup', {
+                const response = await fetch('http://localhost:9001/api/cleanup', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'

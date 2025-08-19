@@ -5,6 +5,6 @@ spring:
     ansi:
       enabled: always
 server:
-  port: 8080
+  port: 9001
   netty:
     connection-timeout: 5s
