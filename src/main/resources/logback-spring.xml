@@ -31,7 +31,7 @@
         <enabled>true</enabled>
     </appender>
 
-    <logger name="com.ericsantanna" level="DEBUG"/>
+    <logger name="com.ericsantanna" level="INFO"/>
     
     <root level="INFO">
         <appender-ref ref="CONSOLE"/>

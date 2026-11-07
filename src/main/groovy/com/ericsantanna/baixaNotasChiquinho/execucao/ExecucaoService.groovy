@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.stereotype.Service
 
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
@@ -25,7 +26,7 @@ class ExecucaoService {
     @Autowired
     ExecutionStatusWebSocketHandler executionStatusWebSocketHandler
 
-    List<ExecutionStatus> statusList = []
+    List<ExecutionStatus> statusList = new CopyOnWriteArrayList<ExecutionStatus>()
 
     ExecutorService executorService = Executors.newSingleThreadExecutor()
     Future<?> runningTask
@@ -48,7 +49,12 @@ class ExecucaoService {
 
     String interromper() {
         if (runningTask != null && !runningTask.isDone()) {
-            script.currentBrowser?.close()
+            try {
+                script.currentBrowser?.close()
+            } catch (Throwable e) {
+                // window may already be gone; still must cancel the task
+                log.warn "Could not close browser while interrupting: ${e.message?.readLines()?.first()}"
+            }
             runningTask.cancel(true)
             return "Process interrupted"
         }
@@ -63,7 +69,7 @@ class ExecucaoService {
             return "CANCELLED"
         }
         if (runningTask.isDone()) {
-            return "COMPLETED"
+            return script.lastOutcome ?: "COMPLETED"
         }
 
         return "RUNNING"

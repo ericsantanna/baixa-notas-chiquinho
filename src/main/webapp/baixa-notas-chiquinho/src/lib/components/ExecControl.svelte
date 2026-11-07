@@ -10,21 +10,25 @@
     console.log('Resulting text from status:', status);
     if (["NOT_STARTED", "COMPLETED"].includes(status)) {
       return 'Executar';
-    } else if (status === "CANCELLED") {
+    } else if (status === "COMPLETED_WITH_ERRORS") {
+      return 'Concluído com pendências';
+    } else if (status === "FAILED") {
+      return 'Execução falhou';
+    } else if (["CANCELLED", "INTERRUPTED"].includes(status)) {
       return 'Execucão interrompida';
     }
     return 'Execução em progresso';
   });
 
   let icon = $derived.by(() => {
-    if (["NOT_STARTED", "COMPLETED", "CANCELLED"].includes(status)) {
+    if (["NOT_STARTED", "COMPLETED", "COMPLETED_WITH_ERRORS", "FAILED", "CANCELLED", "INTERRUPTED"].includes(status)) {
       return 'play';
     }
     return 'stop';
   });
 
   let messageClass = $derived.by(() => {
-    if (status === "CANCELLED") return 'exec-message warning';
+    if (["CANCELLED", "INTERRUPTED", "FAILED", "COMPLETED_WITH_ERRORS"].includes(status)) return 'exec-message warning';
     if (status === "RUNNING") return 'exec-message running';
     return 'exec-message';
   });

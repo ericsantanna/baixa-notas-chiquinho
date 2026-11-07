@@ -65,7 +65,7 @@
   async function toggleExecution() {
     console.log('Toggling execution status:', executionState.executionStatus);
     
-    if (["NOT_STARTED", "COMPLETED", "CANCELLED"].includes(executionState.executionStatus)) {
+    if (["NOT_STARTED", "COMPLETED", "COMPLETED_WITH_ERRORS", "FAILED", "CANCELLED", "INTERRUPTED"].includes(executionState.executionStatus)) {
       if (!validateForm()) {
         return;
       }

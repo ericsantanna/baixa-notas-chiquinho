@@ -9,6 +9,9 @@ import com.ericsantanna.baixaNotasChiquinho.automation.pages.MainPage
 import geb.Browser
 import geb.Page
 import io.github.bonigarcia.wdm.WebDriverManager
+import org.openqa.selenium.NoSuchSessionException
+import org.openqa.selenium.NoSuchWindowException
+import org.openqa.selenium.remote.UnreachableBrowserException
 import org.openqa.selenium.chrome.ChromeDriver
 import org.openqa.selenium.chrome.ChromeOptions
 import org.openqa.selenium.firefox.FirefoxDriver
@@ -23,7 +26,7 @@ import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.Semaphore
-import java.util.zip.ZipFile
+import java.nio.file.Files
 
 @Service
 class BaixaNotasChiquinhoAutomation {
@@ -37,7 +40,29 @@ class BaixaNotasChiquinhoAutomation {
     @Autowired
     ConfiguracoesService configuracoesService
 
+    private static final int MAX_ATTEMPTS = 3
+    private static final int DOWNLOAD_MAX_WAIT_SECONDS = 120
+
+    /** Outcome of the last run: COMPLETED, COMPLETED_WITH_ERRORS, FAILED, INTERRUPTED. */
+    volatile String lastOutcome
+    volatile String lastErrorMessage
+
+    private static boolean isSessionDead(Throwable e) {
+        Throwable t = e
+        while (t != null) {
+            if (t instanceof NoSuchSessionException || t instanceof NoSuchWindowException
+                    || t instanceof UnreachableBrowserException) {
+                return true
+            }
+            t = t.cause
+        }
+        return false
+    }
+
     def execute(String usuario, String senha, String mes, String ano, List<ExecutionStatus> statusList, Closure onStatusUpdate) {
+        lastOutcome = null
+        lastErrorMessage = null
+        boolean hadErrors = false
         try {
             def configurations = configuracoesService.getConfiguracoes()
 
@@ -45,6 +70,7 @@ class BaixaNotasChiquinhoAutomation {
             def processadosFile = Configuracoes.DEFAULT_PROCESSADOS_PATH
             def naoProcessadorFile = Configuracoes.DEFAULT_NAO_PROCESSADOS_PATH
             def franqueadorasFile = Configuracoes.DEFAULT_FRANQUEADORAS_PATH
+            def relatorioFile = new File(rootDir, "relatorio.csv")
             def processados = processadosFile.exists() ? processadosFile.readLines() : []
             def downloadDir = configurations.downloadPath
 
@@ -52,7 +78,7 @@ class BaixaNotasChiquinhoAutomation {
                     configurations.extractionThreads, // core pool size
                     configurations.extractionThreads, // max pool size
                     60, TimeUnit.SECONDS, // keep-alive time
-                    new ArrayBlockingQueue<Runnable>(configurations.extractionThreads) // bounded queue of size 2
+                    new ArrayBlockingQueue<Runnable>(configurations.extractionThreads)
             )
 
             statusList.clear()
@@ -60,29 +86,42 @@ class BaixaNotasChiquinhoAutomation {
             rootDir.mkdirs()
             downloadDir.mkdirs()
             downloadDir.listFiles()?.each { it.delete() }
-            naoProcessadorFile.delete()
+            // keep a history of previous failures; the current file only holds this run's failures
+            if (naoProcessadorFile.exists()) {
+                try {
+                    def stamp = new Date().format("yyyyMMdd-HHmmss")
+                    Files.move(naoProcessadorFile.toPath(),
+                            new File(rootDir, "nao-processados.${stamp}.csv").toPath())
+                } catch (Exception ignored) {
+                    naoProcessadorFile.delete()
+                }
+            }
 
             Browser.drive {
                 try {
-                    switch (configurations.driver.toLowerCase()) {
-                        case "chrome":
-                            driver = createChromeDriver(configurations)
-                            break
-                        case "firefox":
-                            driver = createFirefoxDriver(configurations)
-                            break
-                        default:
-                            throw new IllegalArgumentException("Driver não suportado: ${configurations.driver}")
+                    def startSession = { ->
+                        switch (configurations.driver.toLowerCase()) {
+                            case "chrome":
+                                driver = createChromeDriver(configurations)
+                                break
+                            case "firefox":
+                                driver = createFirefoxDriver(configurations)
+                                break
+                            default:
+                                throw new IllegalArgumentException("Driver não suportado: ${configurations.driver}")
+                        }
+                        browser.config.defaultWaitTimeout = configurations.waitingTimeout
+                        currentBrowser = browser
+
+                        def loginPage = to LoginPage
+                        loginPage.loginField.value(usuario)
+                        loginPage.passwordField.value(senha)
+                        loginPage.loginButton.click()
+
+                        return at(MainPage)
                     }
-                    browser.config.defaultWaitTimeout = configurations.waitingTimeout
-                    currentBrowser = browser
 
-                    def loginPage = to LoginPage
-                    loginPage.loginField.value(usuario)
-                    loginPage.passwordField.value(senha)
-                    loginPage.loginButton.click()
-
-                    def paginaInicial = at MainPage
+                    def paginaInicial = startSession()
 
                     sleep(500)
                     paginaInicial.header.franqueadoraMenu.click()
@@ -103,30 +142,24 @@ class BaixaNotasChiquinhoAutomation {
                     onStatusUpdate(statusList)
 
                     Page currentPage = paginaInicial
-                    franqueadoras.each { franqueadora ->
 
-                        if (Thread.currentThread().isInterrupted()) {
-                            log.warn "Thread cancelled during processing, closing browser"
-                            browser.close()
-                            return
+                    // Processes ONE franchise. Returns normally when handled (processed or recorded as
+                    // not-processed with a business reason). Throws on technical failure so it can be retried.
+                    def processarFranqueadora = { String franqueadora ->
+                        // 1) Select the franchise first, from whatever page we are on (the header exists everywhere).
+                        //    The side menu only contains "Fiscal" once a franchise context is selected.
+                        def paginaAtual = browser.page(MainPage)
+                        paginaAtual.header.franqueadoraMenu.click()
+                        paginaAtual.header.selecionarFranqueadora(franqueadora)
+
+                        // 2) The query form can NOT be opened by URL ("Acesso negado"); reach it through the side menu.
+                        //    If the switch kept us on the form already, there is nothing to navigate.
+                        boolean naConsulta = $('div.headerTitle h4 span', text: 'Consulta Cupom Fiscal PDV').size() == 1
+                        if (!naConsulta) {
+                            browser.page(MainPage).abrirConsultaNotaFiscalVendaPdv2()
                         }
 
-                        log.info "Processando franqueadora: $franqueadora"
-
-                        if (processados.contains(franqueadora)) {
-                            log.info "Franqueadora $franqueadora já processada. Pulando..."
-                            updateStatusList(statusList, new ExecutionStatus(franqueadora, "PREVIOUSLY_PROCESSED"), null)
-                            return
-                        }
-
-                        updateStatusList(statusList, new ExecutionStatus(franqueadora, "PROCESSING"), onStatusUpdate)
-
-                        currentPage.header.franqueadoraMenu.click()
-                        currentPage.header.getInFranqueadoraMenu(franqueadora).click()
-
-                        at new MainPage(franqueadora: franqueadora)
-
-                        def consultaCupomFiscalPage = to ConsultaCupomFiscalPdv2Page
+                        def consultaCupomFiscalPage = at ConsultaCupomFiscalPdv2Page
                         consultaCupomFiscalPage.mesSelect.click()
                         sleep(400)
                         if (consultaCupomFiscalPage.temMes(mes)) {
@@ -134,6 +167,7 @@ class BaixaNotasChiquinhoAutomation {
                         } else {
                             def msg = "$mes não encontrado para a franqueadora $franqueadora"
                             handleNaoProcessado(msg, franqueadora, naoProcessadorFile, statusList, onStatusUpdate)
+                            currentPage = consultaCupomFiscalPage
                             return
                         }
                         sleep(400)
@@ -145,6 +179,7 @@ class BaixaNotasChiquinhoAutomation {
                         } else {
                             def msg = "$ano não encontrado para a franqueadora $franqueadora"
                             handleNaoProcessado(msg, franqueadora, naoProcessadorFile, statusList, onStatusUpdate)
+                            currentPage = consultaCupomFiscalPage
                             return
                         }
                         sleep(400)
@@ -158,56 +193,58 @@ class BaixaNotasChiquinhoAutomation {
                         if (!consultaCupomFiscalPage.pesquisaRetornouConteudo) {
                             def msg = "Nenhum resultado encontrado para $franqueadora em $mes de $ano"
                             handleNaoProcessado(msg, franqueadora, naoProcessadorFile, statusList, onStatusUpdate)
+                            currentPage = consultaCupomFiscalPage
                             return
                         }
 
                         try {
                             fileDownloadSemaphore.acquire()
+
+                            // never let a leftover/late zip be mistaken for this franchise's download
+                            downloadDir.listFiles()?.each { it.delete() }
+
                             consultaCupomFiscalPage.exportarXmlButton.click()
-                            waitFor { !$('div.ui-widget-overlay.ui-dialog-mask').displayed }
+                            waitFor(DOWNLOAD_MAX_WAIT_SECONDS) { !$('div.ui-widget-overlay.ui-dialog-mask').displayed }
 
-                            int maxWait = 30
-                            int waited = 0
-                            File newDownloadedFile = null
-                            while (waited < maxWait) {
-                                def afterFiles = downloadDir.listFiles()?.findAll { it.name.endsWith(".zip") }
-                                if (afterFiles && afterFiles.size() > 0) {
-                                    newDownloadedFile = afterFiles[0]
-                                    break
-                                }
-                                sleep(1000)
-                                waited++
-                            }
-                            if (newDownloadedFile) {
-                                def targetDir = new File(configurations.extractionPath, "$mes-$ano/$franqueadora")
-                                targetDir.mkdirs()
-                                awaitForFileSizeToStabilize(newDownloadedFile)
-
-                                def hash = UUID.randomUUID().toString()
-                                def newFile = new File("${newDownloadedFile.getAbsolutePath()}.$hash")
-                                newDownloadedFile.renameTo(newFile)
-
-                                boolean submitted = submitWithTimeout(executor, {
-                                    try {
-                                        unzipFile(newFile, targetDir)
-                                        newFile.delete()
-                                        processadosFile << "$franqueadora\n"
-                                        updateStatusList(statusList, new ExecutionStatus(franqueadora, "PROCESSED"), onStatusUpdate)
-                                        log.info "Arquivo extraído para: ${targetDir.getAbsolutePath()} e zip removido."
-                                    } catch (Throwable e) {
-                                        def msg = "Erro ao extrair o arquivo para ${franqueadora}: ${e.message}"
-                                        handleNaoProcessado(msg, franqueadora, naoProcessadorFile, statusList, onStatusUpdate)
-                                        log.error mes, e
-                                    }
-                                } as Runnable, 10 * 60 * 1000L) // 10 min timeout
-                                if (!submitted) {
-                                    def msg = "Timeout ao aguardar slot para processar ${franqueadora}"
-                                    handleNaoProcessado(msg, franqueadora, naoProcessadorFile, statusList, onStatusUpdate)
-                                }
-                            } else {
-                                def msg = "Arquivo de download não encontrado para ${franqueadora} após ${maxWait} segundos"
+                            File newDownloadedFile = awaitDownloadedZip(downloadDir, DOWNLOAD_MAX_WAIT_SECONDS)
+                            if (!newDownloadedFile) {
+                                def msg = "Arquivo de download não encontrado para ${franqueadora} após ${DOWNLOAD_MAX_WAIT_SECONDS} segundos"
                                 handleNaoProcessado(msg, franqueadora, naoProcessadorFile, statusList, onStatusUpdate)
+                                currentPage = consultaCupomFiscalPage
                                 return
+                            }
+
+                            def targetDir = new File(configurations.extractionPath, "$mes-$ano/$franqueadora")
+                            if (!awaitForFileSizeToStabilize(newDownloadedFile)) {
+                                throw new IllegalStateException("Download não estabilizou: ${newDownloadedFile.name}")
+                            }
+
+                            def hash = UUID.randomUUID().toString()
+                            def newFile = new File("${newDownloadedFile.getAbsolutePath()}.$hash")
+                            if (!newDownloadedFile.renameTo(newFile)) {
+                                throw new IllegalStateException("Não foi possível renomear ${newDownloadedFile.name}")
+                            }
+
+                            boolean submitted = submitWithTimeout(executor, {
+                                try {
+                                    def result = ZipExtractor.extractAndValidate(newFile, targetDir)
+                                    newFile.delete()
+                                    // only mark as processed AFTER validated extraction
+                                    ZipExtractor.appendLine(processadosFile, franqueadora)
+                                    ZipExtractor.appendLine(relatorioFile,
+                                            "$franqueadora;$mes;$ano;${result.xmlCount};${result.zipBytes};${result.sha256}")
+                                    updateStatusList(statusList, new ExecutionStatus(franqueadora, "PROCESSED"), onStatusUpdate)
+                                    log.info "Arquivo extraído para: ${targetDir.getAbsolutePath()} (${result.xmlCount} XMLs) e zip removido."
+                                } catch (Throwable e) {
+                                    def msg = "Erro ao extrair o arquivo para ${franqueadora}: ${e.message}"
+                                    newFile.delete()
+                                    handleNaoProcessado(msg, franqueadora, naoProcessadorFile, statusList, onStatusUpdate)
+                                    log.warn msg, e
+                                }
+                            } as Runnable, 10 * 60 * 1000L) // 10 min timeout
+                            if (!submitted) {
+                                def msg = "Timeout ao aguardar slot para processar ${franqueadora}"
+                                handleNaoProcessado(msg, franqueadora, naoProcessadorFile, statusList, onStatusUpdate)
                             }
                         } finally {
                             fileDownloadSemaphore.release()
@@ -216,7 +253,78 @@ class BaixaNotasChiquinhoAutomation {
                         currentPage = consultaCupomFiscalPage
                     }
 
-                    log.info ">>> Todas as franqueadoras processadas com sucesso! <<<"
+                    for (String franqueadora in franqueadoras) {
+
+                        if (Thread.currentThread().isInterrupted()) {
+                            log.warn "Thread cancelled during processing, closing browser"
+                            browser.close()
+                            throw new InterruptedException("Execução interrompida")
+                        }
+
+                        log.info "Processando franqueadora: $franqueadora"
+
+                        if (processados.contains(franqueadora)) {
+                            log.info "Franqueadora $franqueadora já processada. Pulando..."
+                            updateStatusList(statusList, new ExecutionStatus(franqueadora, "PREVIOUSLY_PROCESSED"), null)
+                            continue
+                        }
+
+                        updateStatusList(statusList, new ExecutionStatus(franqueadora, "PROCESSING"), onStatusUpdate)
+
+                        boolean ok = false
+                        Throwable lastError = null
+                        for (int attempt = 1; attempt <= MAX_ATTEMPTS && !ok; attempt++) {
+                            try {
+                                processarFranqueadora(franqueadora)
+                                ok = true
+                            } catch (InterruptedException e) {
+                                throw e
+                            } catch (Throwable e) {
+                                if (Thread.currentThread().isInterrupted()) {
+                                    throw new InterruptedException("Execução interrompida")
+                                }
+                                lastError = e
+                                salvarDiagnosticoFalha(franqueadora, attempt, browser.driver, e)
+                                log.warn "Falha em $franqueadora (tentativa $attempt/$MAX_ATTEMPTS): ${e.class.simpleName}: ${e.message?.readLines()?.first()}"
+                                if (attempt < MAX_ATTEMPTS) {
+                                    try {
+                                        if (isSessionDead(e)) {
+                                            log.warn "Sessão do navegador perdida. Reabrindo e fazendo login novamente..."
+                                            try { browser.quit() } catch (Throwable ignored) {}
+                                            currentPage = startSession()
+                                        } else {
+                                            via(MainPage)
+                                        }
+                                    } catch (Throwable recoverError) {
+                                        log.warn "Falha ao recuperar sessão: ${recoverError.message?.readLines()?.first()}"
+                                    }
+                                }
+                            }
+                        }
+
+                        if (!ok) {
+                            hadErrors = true
+                            def msg = "Falha técnica após $MAX_ATTEMPTS tentativas em ${franqueadora}: ${lastError?.class?.simpleName}: ${lastError?.message?.readLines()?.first()}"
+                            log.warn msg
+                            handleNaoProcessado(msg, franqueadora, naoProcessadorFile, statusList, onStatusUpdate)
+                            // try to get back to a clean state for the next franchise
+                            try {
+                                if (isSessionDead(lastError)) {
+                                    try { browser.quit() } catch (Throwable ignored) {}
+                                    currentPage = startSession()
+                                } else {
+                                    via(MainPage)
+                                }
+                            } catch (Throwable recoverError) {
+                                log.warn "Falha ao recuperar após erro em $franqueadora: ${recoverError.message?.readLines()?.first()}"
+                            }
+                        }
+                    }
+
+                    if (statusList.any { it.status == "NOT_PROCESSED" }) {
+                        hadErrors = true
+                    }
+                    log.info ">>> Todas as franqueadoras foram tratadas. Consulte nao-processados.csv para as pendências. <<<"
                 } catch (InterruptedException e) {
                     log.warn "Thread was interrupted, closing browser"
                     try {
@@ -224,22 +332,64 @@ class BaixaNotasChiquinhoAutomation {
                     } catch (Throwable ignored) {}
                     Thread.currentThread().interrupt()
                     throw e
-                } catch (Throwable e) {
-                    throw e
                 } finally {
                     executor.shutdown()
                     executor.awaitTermination(10, TimeUnit.MINUTES)
+                    try { browser.quit() } catch (Throwable ignored) {}
                 }
             }
-        } catch (Throwable e) {
-            log.error "${e.message}", e
+            lastOutcome = hadErrors ? "COMPLETED_WITH_ERRORS" : "COMPLETED"
+        } catch (InterruptedException e) {
+            lastOutcome = "INTERRUPTED"
+            log.warn "Execução interrompida pelo usuário"
             Thread.currentThread().interrupt()
+        } catch (Throwable e) {
+            lastOutcome = "FAILED"
+            lastErrorMessage = e.message
+            log.error "${e.message}", e
+            // franchises that never got a chance must not stay PENDING/PROCESSING forever
+            statusList.findAll { it.status in ["PENDING", "PROCESSING"] }.each {
+                updateStatusList(statusList, new ExecutionStatus(it.franqueadora, "NOT_PROCESSED", "Execução abortada: ${e.message?.readLines()?.first()}"), onStatusUpdate)
+            }
+        }
+    }
+
+    /** Writes URL, stack trace (app frames + root cause), side-menu HTML and a screenshot for a failed attempt. */
+    private static void salvarDiagnosticoFalha(String franqueadora, int attempt, driver, Throwable e) {
+        try {
+            def dir = new File(Configuracoes.DEFAULT_ROOT_PATH, "diagnostico")
+            dir.mkdirs()
+            def safe = franqueadora.replaceAll(/[^A-Za-z0-9]+/, "_")
+            def sb = new StringBuilder()
+            sb << "ATTEMPT: $attempt\n"
+            try { sb << "URL: ${driver.currentUrl}\nTITLE: ${driver.title}\n" } catch (Throwable ignored) {}
+
+            Throwable root = e
+            while (root.cause != null && !root.cause.is(root)) { root = root.cause }
+            sb << "\nEXCEPTION: ${e.class.name}: ${e.message?.readLines()?.take(12)?.join('\n')}\n"
+            sb << "ROOT CAUSE: ${root.class.name}: ${root.message?.readLines()?.take(25)?.join('\n')}\n"
+            sb << "\nAPP FRAMES:\n"
+            (e.stackTrace + root.stackTrace).findAll { it.className.startsWith("com.ericsantanna") }
+                    .each { sb << "  at ${it}\n" }
+
+            try {
+                def menu = driver.executeScript("var m=document.querySelector('#layout-menubar'); return m ? m.outerHTML : 'NO #layout-menubar';")
+                sb << "\nSIDE MENU HTML (first 8000 chars):\n${menu?.toString()?.take(8000)}\n"
+                def links = driver.executeScript("return Array.prototype.slice.call(document.querySelectorAll('#layout-menubar a')).map(function(a){return a.textContent.replace(/\\s+/g,' ').trim() + ' | ' + (a.getAttribute('href')||'') + ' | displayed=' + (a.offsetParent!==null);});")
+                sb << "\nALL MENU LINKS (text | href | displayed):\n${links?.join('\n')}\n"
+            } catch (Throwable ignored) {}
+
+            new File(dir, "${safe}-tentativa${attempt}.txt").text = sb.toString()
+            def shot = ((org.openqa.selenium.TakesScreenshot) driver).getScreenshotAs(org.openqa.selenium.OutputType.BYTES)
+            new File(dir, "${safe}-tentativa${attempt}.png").bytes = shot
+        } catch (Throwable ignored) {
+            // diagnostics must never mask the real error
         }
     }
 
     private static void handleNaoProcessado(String message, String franqueadora, naoProcessadorFile, List<ExecutionStatus> statusList, Closure onStatusUpdate) {
         log.warn message
-        naoProcessadorFile << "$franqueadora;$message\n"
+        ZipExtractor.appendLine(naoProcessadorFile, "$franqueadora;${message?.replace("\n", " ")}")
         updateStatusList(statusList, new ExecutionStatus(franqueadora, "NOT_PROCESSED", message), onStatusUpdate)
     }
 
@@ -306,54 +456,61 @@ class BaixaNotasChiquinhoAutomation {
     }
 
 
+    private static final Object STATUS_LOCK = new Object()
+
     private static void updateStatusList(List<ExecutionStatus> statusList, ExecutionStatus executionStatus, Closure onStatusUpdate) {
-        def idx = statusList.indexOf(executionStatus)
-        if (idx >= 0) {
-            statusList[idx] = executionStatus
-        } else {
-            statusList << executionStatus
+        synchronized (STATUS_LOCK) {
+            def idx = statusList.indexOf(executionStatus)
+            if (idx >= 0) {
+                statusList[idx] = executionStatus
+            } else {
+                statusList << executionStatus
+            }
         }
 
         if (onStatusUpdate) {
-            onStatusUpdate(statusList)
-        }
-    }
-
-    private static List unzipFile(File newFile, File targetDir) {
-        def zipFile = new ZipFile(newFile)
-        zipFile.entries().each { entry ->
-            def entryDest = new File(targetDir, entry.name)
-            if (entry.isDirectory()) {
-                entryDest.mkdirs()
-            } else {
-                entryDest.parentFile.mkdirs()
-                entryDest.withOutputStream { os ->
-                    zipFile.getInputStream(entry).withStream { is ->
-                        os << is
-                    }
-                }
+            try {
+                onStatusUpdate(statusList)
+            } catch (Throwable e) {
+                // UI broadcast problems must never abort the extraction
+                log.warn "Falha ao notificar UI: ${e.message}"
             }
         }
-        zipFile.close()
     }
 
-    private static void awaitForFileSizeToStabilize(File newFile) {
+    private static File awaitDownloadedZip(File downloadDir, int maxWaitSeconds) {
+        for (int waited = 0; waited < maxWaitSeconds; waited++) {
+            def files = downloadDir.listFiles()
+            def partial = files?.any { it.name.endsWith(".crdownload") || it.name.endsWith(".part") || it.name.endsWith(".tmp") }
+            def zips = files?.findAll { it.name.endsWith(".zip") }
+            if (!partial && zips) {
+                return zips.max { it.lastModified() }
+            }
+            sleep(1000)
+        }
+        return null
+    }
+
+    /** @return true when the size stayed unchanged for consecutive checks */
+    private static boolean awaitForFileSizeToStabilize(File newFile) {
         long lastSize = -1
         int stableCount = 0
         int maxStable = 2 // number of consecutive stable checks
-        int maxWaitStable = 30 // seconds
-        int waitedStable = 0
-        while (stableCount < maxStable && waitedStable < maxWaitStable) {
+        int maxWaitStable = 60 // seconds
+        for (int waited = 0; waited < maxWaitStable; waited++) {
             long currentSize = newFile.length()
             if (currentSize > 0 && currentSize == lastSize) {
                 stableCount++
+                if (stableCount >= maxStable) {
+                    return true
+                }
             } else {
                 stableCount = 0
             }
             lastSize = currentSize
             sleep(1000)
-            waitedStable++
         }
+        return false
     }
 
     private static boolean submitWithTimeout(ThreadPoolExecutor executor, Runnable task, long timeoutMillis) {

@@ -17,7 +17,7 @@ class ExecutionStatusWebSocketHandler extends TextWebSocketHandler {
     private static final Logger log = LoggerFactory.getLogger(ExecutionStatusWebSocketHandler.class)
     
     private final Set<WebSocketSession> sessions = ConcurrentHashMap.newKeySet()
-    private List<ExecutionStatus> statusList = []
+    private volatile List<ExecutionStatus> statusList = []
 
     @Override
     void afterConnectionEstablished(WebSocketSession session) {
@@ -28,7 +28,9 @@ class ExecutionStatusWebSocketHandler extends TextWebSocketHandler {
         // Send current status to new client
         if (!statusList.isEmpty()) {
             try {
-                session.sendMessage(new TextMessage(JsonOutput.toJson(statusList)))
+                synchronized (session) {
+                    session.sendMessage(new TextMessage(JsonOutput.toJson(statusList)))
+                }
             } catch (Exception e) {
                 log.error("Failed to send initial status to session ${session.id}: ${e.message}")
             }
@@ -54,7 +56,13 @@ class ExecutionStatusWebSocketHandler extends TextWebSocketHandler {
         }
         
         log.info("Broadcasting ${statusList.size()} status messages to ${sessions.size()} sessions")
-        def json = JsonOutput.toJson(statusList)
+        String json
+        try {
+            json = JsonOutput.toJson(new ArrayList<ExecutionStatus>(statusList))
+        } catch (Throwable e) {
+            log.warn("Could not serialize status list: ${e.message}")
+            return
+        }
 
         // Create iterator to safely remove failed sessions
         Iterator<WebSocketSession> iterator = sessions.iterator()
@@ -62,7 +70,9 @@ class ExecutionStatusWebSocketHandler extends TextWebSocketHandler {
             WebSocketSession session = iterator.next()
             try {
                 if (session.isOpen()) {
-                    session.sendMessage(new TextMessage(json))
+                    synchronized (session) {
+                        session.sendMessage(new TextMessage(json))
+                    }
                 } else {
                     log.debug("Removing closed execution status session: ${session.id}")
                     iterator.remove()

@@ -2,7 +2,7 @@ package com.ericsantanna.baixaNotasChiquinho.configuracoes
 
 class Configuracoes {
     static final String DEFAULT_DRIVER = "Firefox"
-    static final int DEFAULT_WAITING_TIMEOUT = 10
+    static final int DEFAULT_WAITING_TIMEOUT = 30
     static final int DEFAULT_EXTRACTION_THREADS = 2
     static final File DEFAULT_ROOT_PATH = new File(System.getProperty("user.dir"), "execucao")
     static final File DEFAULT_DOWNLOAD_PATH = new File(DEFAULT_ROOT_PATH, "baixados")

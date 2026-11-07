@@ -39,7 +39,6 @@ class LogWebSocketHandler extends TextWebSocketHandler {
         }
 
         String logJson = new JsonBuilder(logEvent).toString()
-        log.debug("Broadcasting log: ${logJson}")
 
         // Create iterator to safely remove failed sessions
         Iterator<WebSocketSession> iterator = sessions.iterator()
@@ -47,8 +46,9 @@ class LogWebSocketHandler extends TextWebSocketHandler {
             WebSocketSession session = iterator.next()
             try {
                 if (session.isOpen()) {
-                    session.sendMessage(new TextMessage(logJson))
-                    log.debug("Sent message to session: ${session.id}")
+                    synchronized (session) {
+                        session.sendMessage(new TextMessage(logJson))
+                    }
                 } else {
                     log.debug("Removing closed session: ${session.id}")
                     iterator.remove()
