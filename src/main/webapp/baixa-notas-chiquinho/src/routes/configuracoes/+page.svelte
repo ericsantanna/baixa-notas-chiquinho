@@ -9,7 +9,15 @@
     let rootPath = $state('');
     let downloadPath = $state('');
     let extractionPath = $state('');
-    
+
+    // LLM agent
+    let agentMode = $state('OFF');
+    let llmModel = $state('');
+    let llmApiKey = $state('');
+    let agentMaxSteps = $state('');
+    let agentTimeoutSeconds = $state('');
+    let agentMaxTokensPerRun = $state('');
+
     // Validation errors
     let errors = $state({});
     
@@ -38,7 +46,14 @@
             rootPath = config.rootPath?.toString() || '';
             downloadPath = config.downloadPath?.toString() || '';
             extractionPath = config.extractionPath?.toString() || '';
-            
+
+            agentMode = config.agentMode || 'OFF';
+            llmModel = config.llmModel || '';
+            llmApiKey = config.llmApiKey || ''; // already masked by the backend ("****abcd")
+            agentMaxSteps = config.agentMaxSteps?.toString() || '';
+            agentTimeoutSeconds = config.agentTimeoutSeconds?.toString() || '';
+            agentMaxTokensPerRun = config.agentMaxTokensPerRun?.toString() || '';
+
         } catch (error) {
             console.error('Error loading configurations:', error);
             // Keep default values on error
@@ -77,7 +92,16 @@
         if (!extractionPath.trim()) {
             newErrors.extractionPath = 'Diretório de extração é obrigatório';
         }
-        
+
+        if (agentMode !== 'OFF' && !llmApiKey.trim()) {
+            newErrors.llmApiKey = 'Informe a chave de API para usar o agente (ou deixe o agente desligado)';
+        }
+        for (const [field, value] of [['agentMaxSteps', agentMaxSteps], ['agentTimeoutSeconds', agentTimeoutSeconds], ['agentMaxTokensPerRun', agentMaxTokensPerRun]]) {
+            if (value !== '' && (isNaN(value) || Number(value) <= 0)) {
+                newErrors[field] = 'Deve ser um número positivo';
+            }
+        }
+
         errors = newErrors;
         return Object.keys(newErrors).length === 0;
     }
@@ -98,7 +122,13 @@
                 extractionThreads: Number(extractionThreads),
                 rootPath: rootPath.trim(),
                 downloadPath: downloadPath.trim(),
-                extractionPath: extractionPath.trim()
+                extractionPath: extractionPath.trim(),
+                agentMode,
+                llmModel: llmModel.trim(),
+                llmApiKey: llmApiKey.trim(), // masked value ("****...") means "keep the stored key"
+                agentMaxSteps: agentMaxSteps === '' ? null : Number(agentMaxSteps),
+                agentTimeoutSeconds: agentTimeoutSeconds === '' ? null : Number(agentTimeoutSeconds),
+                agentMaxTokensPerRun: agentMaxTokensPerRun === '' ? null : Number(agentMaxTokensPerRun)
             };
             
             const response = await fetch('http://localhost:9001/api/configuracoes', {
@@ -322,6 +352,95 @@
                     <span class="error-message">{errors.extractionPath}</span>
                 {/if}
             </div>
+
+            <!-- LLM agent -->
+            <div class="form-group">
+                <fieldset class="radio-group">
+                    <legend class="field-title">Agente de IA</legend>
+                    <p class="field-description">
+                        Uma IA (Claude, da Anthropic) ajuda quando o script automático não consegue chegar na tela de consulta de uma franqueadora.
+                    </p>
+                    <p class="field-description">
+                        <b>Desligado:</b> só o script trabalha, como sempre foi.<br/>
+                        <b>Reforço:</b> a IA só entra depois que as 3 tentativas do script falharem. Só gera custo quando algo dá errado.<br/>
+                        <b>Completo:</b> a IA navega primeiro; se ela falhar, o script assume.
+                    </p>
+                    <p class="field-description">
+                        O download, a extração e a validação das notas continuam sendo feitos pelo programa. A IA só vê o texto das telas, sem CNPJ, CPF ou valores.
+                        As instruções, o que a IA aprendeu e os tempos de espera ficam na página <a href="/agente">Agente de IA</a>.
+                    </p>
+
+                    <div class="radio-options">
+                        <label class="radio-label">
+                            <input type="radio" bind:group={agentMode} value="OFF" class="radio-input" />
+                            <span class="radio-text">Desligado</span>
+                        </label>
+                        <label class="radio-label">
+                            <input type="radio" bind:group={agentMode} value="FALLBACK" class="radio-input" />
+                            <span class="radio-text">Reforço</span>
+                        </label>
+                        <label class="radio-label">
+                            <input type="radio" bind:group={agentMode} value="FULL" class="radio-input" />
+                            <span class="radio-text">Completo</span>
+                        </label>
+                    </div>
+                </fieldset>
+            </div>
+
+            {#if agentMode !== 'OFF'}
+                <div class="form-group">
+                    <label for="llmApiKey" class="field-title">Chave de API (Anthropic)</label>
+                    <p class="field-description">
+                        Use uma chave exclusiva deste projeto, de um workspace com limite de gasto mensal.
+                        Depois de salva, a chave aparece mascarada; deixe como está para mantê-la.
+                    </p>
+                    <input
+                        type="password"
+                        id="llmApiKey"
+                        bind:value={llmApiKey}
+                        placeholder="sk-ant-..."
+                        autocomplete="off"
+                        class="directory-input"
+                        class:error={errors.llmApiKey}
+                    />
+                    {#if errors.llmApiKey}
+                        <span class="error-message">{errors.llmApiKey}</span>
+                    {/if}
+                </div>
+
+                <div class="form-group">
+                    <label for="llmModel" class="field-title">Modelo</label>
+                    <input
+                        type="text"
+                        id="llmModel"
+                        bind:value={llmModel}
+                        placeholder="claude-haiku-5-5"
+                        class="directory-input"
+                    />
+                </div>
+
+                <div class="form-group">
+                    <label for="agentMaxSteps" class="field-title">Máximo de passos por franqueadora</label>
+                    <input type="number" id="agentMaxSteps" bind:value={agentMaxSteps} min="1" placeholder="15"
+                           class="number-input" class:error={errors.agentMaxSteps} />
+                    {#if errors.agentMaxSteps}<span class="error-message">{errors.agentMaxSteps}</span>{/if}
+                </div>
+
+                <div class="form-group">
+                    <label for="agentTimeoutSeconds" class="field-title">Tempo máximo por franqueadora (segundos)</label>
+                    <input type="number" id="agentTimeoutSeconds" bind:value={agentTimeoutSeconds} min="1" placeholder="300"
+                           class="number-input" class:error={errors.agentTimeoutSeconds} />
+                    {#if errors.agentTimeoutSeconds}<span class="error-message">{errors.agentTimeoutSeconds}</span>{/if}
+                </div>
+
+                <div class="form-group">
+                    <label for="agentMaxTokensPerRun" class="field-title">Limite de tokens por execução</label>
+                    <p class="field-description">Trava de segurança: ao atingir o limite a IA para e as franqueadoras restantes seguem só com o script.</p>
+                    <input type="number" id="agentMaxTokensPerRun" bind:value={agentMaxTokensPerRun} min="1" placeholder="400000"
+                           class="number-input" class:error={errors.agentMaxTokensPerRun} />
+                    {#if errors.agentMaxTokensPerRun}<span class="error-message">{errors.agentMaxTokensPerRun}</span>{/if}
+                </div>
+            {/if}
 
             <!-- Submit Button -->
             <div class="form-actions">

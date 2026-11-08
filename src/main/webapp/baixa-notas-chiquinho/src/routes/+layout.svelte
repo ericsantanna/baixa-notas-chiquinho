@@ -28,6 +28,8 @@
       <ul>
         <li><a class:active={$page.url.pathname === '/execucao'} href="/execucao">Execução</a></li>
         <li><a class:active={$page.url.pathname === '/configuracoes'} href="/configuracoes">Configurações</a></li>
+        <li><a class:active={$page.url.pathname === '/agente'} href="/agente">Agente de IA</a></li>
+        <li><a class:active={$page.url.pathname === '/metricas'} href="/metricas">Métricas</a></li>
         <li><a class:active={$page.url.pathname === '/logs'} href="/logs">Logs</a></li>
       </ul>
     </nav>

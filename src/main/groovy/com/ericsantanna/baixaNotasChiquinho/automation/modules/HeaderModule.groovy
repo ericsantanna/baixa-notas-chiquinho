@@ -37,7 +37,7 @@ class HeaderModule extends Module {
      * scrollable list. Selenium's text()/displayed ignore clipped items and a plain click can miss them,
      * so match on textContent, scroll the item into view inside the list, then click (JS click as fallback).
      */
-    void selecionarFranqueadora(String franqueadora) {
+    void selecionarFranqueadora(String franqueadora, int verificacaoSegundos = 8) {
         def wanted = franqueadora.trim().toUpperCase()
         def item = waitFor {
             def found = listaDeFranqueadorasMenu.find {
@@ -63,7 +63,7 @@ class HeaderModule extends Module {
             } catch (Exception ignored) {
                 // stale because the page already reloaded -> check below decides
             }
-            if (awaitSelecionada(wanted, 8)) {
+            if (awaitSelecionada(wanted, verificacaoSegundos)) {
                 return
             }
         }

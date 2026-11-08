@@ -23,7 +23,8 @@ class ConfiguracoesController {
 
     @GetMapping
     Configuracoes getConfigurations() {
-        return configuracoesService.getConfiguracoes()
+        // never expose the API key to the browser
+        return configuracoesService.getConfiguracoes().masked()
     }
 
     static class ConfiguracoesRequest {
@@ -33,5 +34,13 @@ class ConfiguracoesController {
         String rootPath
         String downloadPath
         String extractionPath
+
+        String agentMode
+        String llmModel
+        /** Blank or starting with "****" means "keep the stored key". */
+        String llmApiKey
+        Integer agentMaxSteps
+        Integer agentTimeoutSeconds
+        Integer agentMaxTokensPerRun
     }
 }

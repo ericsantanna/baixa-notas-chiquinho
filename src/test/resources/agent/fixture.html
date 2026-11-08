@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Fixture ITFGestor</title></head>
+<body>
+<!-- Minimal imitation of the ITFGestor structure the agent relies on -->
+<div id="layout-header">
+    <div class="widgets-item">Logo</div>
+    <div class="widgets-item" id="franq-widget">
+        <span id="cur">EMPRESA A</span>
+        <br/>CNPJ 12.345.678/0001-95
+        <div id="lista" class="lista-empresas" style="display:none; max-height:60px; overflow-y:auto">
+            <ul>
+                <li><a href="#" onclick="pick('EMPRESA A'); return false;">EMPRESA A</a><a href="#" onclick="return false;"></a></li>
+                <li><a href="#" onclick="pick('EMPRESA B'); return false;">EMPRESA B</a><a href="#" onclick="return false;"></a></li>
+                <li><a href="#" onclick="pick('EMPRESA C'); return false;">EMPRESA C</a><a href="#" onclick="return false;"></a></li>
+                <li><a href="#" onclick="pick('EMPRESA D'); return false;">EMPRESA D</a><a href="#" onclick="return false;"></a></li>
+                <li><a href="#" onclick="pick('EMPRESA E'); return false;">EMPRESA E</a><a href="#" onclick="return false;"></a></li>
+                <li><a href="#" onclick="pick('EMPRESA F'); return false;">EMPRESA F</a><a href="#" onclick="return false;"></a></li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<div id="layout-menubar">
+    <ul>
+        <li style="display:none" id="fiscal-li">
+            <a href="#" onclick="show('sub1'); return false;">Fiscal</a>
+            <ul id="sub1" style="display:none">
+                <li>
+                    <a href="#" onclick="show('sub2'); return false;">Gerenciamento</a>
+                    <ul id="sub2" style="display:none">
+                        <li><a href="#" onclick="openConsulta(); return false;">Consulta Nota Fiscal Venda PDV2</a></li>
+                    </ul>
+                </li>
+            </ul>
+        </li>
+        <li><a href="#" onclick="return false;">Sair</a></li>
+        <li><a href="https://evil.example.com/x">Link externo</a></li>
+    </ul>
+</div>
+
+<div class="headerTitle"><h4><span id="titulo">Inicio</span></h4></div>
+<div id="hidden-stuff" style="display:none"><a href="#" onclick="return false;">Escondido</a></div>
+
+<script>
+    document.getElementById('franq-widget').addEventListener('click', function () {
+        document.getElementById('lista').style.display = 'block';
+    });
+    function pick(name) {
+        document.getElementById('cur').textContent = name;
+        document.getElementById('lista').style.display = 'none';
+        document.getElementById('fiscal-li').style.display = 'block';
+        document.getElementById('titulo').textContent = 'Inicio';
+    }
+    function show(id) { document.getElementById(id).style.display = 'block'; }
+    function openConsulta() { document.getElementById('titulo').textContent = 'Consulta Cupom Fiscal PDV'; }
+</script>
+</body>
+</html>

@@ -6,6 +6,10 @@ import com.ericsantanna.baixaNotasChiquinho.execucao.ExecutionStatus
 import com.ericsantanna.baixaNotasChiquinho.automation.pages.ConsultaCupomFiscalPdv2Page
 import com.ericsantanna.baixaNotasChiquinho.automation.pages.LoginPage
 import com.ericsantanna.baixaNotasChiquinho.automation.pages.MainPage
+import com.ericsantanna.baixaNotasChiquinho.automation.agent.AgentKnowledgeStore
+import com.ericsantanna.baixaNotasChiquinho.automation.agent.NavigationAgent
+import com.ericsantanna.baixaNotasChiquinho.automation.agent.OperationTimer
+import com.ericsantanna.baixaNotasChiquinho.metricas.ExecutionRecorder
 import geb.Browser
 import geb.Page
 import io.github.bonigarcia.wdm.WebDriverManager
@@ -63,6 +67,7 @@ class BaixaNotasChiquinhoAutomation {
         lastOutcome = null
         lastErrorMessage = null
         boolean hadErrors = false
+        ExecutionRecorder recorder = null // metrics of this execution, saved in the finally block below
         try {
             def configurations = configuracoesService.getConfiguracoes()
 
@@ -73,6 +78,14 @@ class BaixaNotasChiquinhoAutomation {
             def relatorioFile = new File(rootDir, "relatorio.csv")
             def processados = processadosFile.exists() ? processadosFile.readLines() : []
             def downloadDir = configurations.downloadPath
+
+            // What the agent keeps between executions (playbook, approved lessons, measured timeouts); it also receives
+            // the durations of the scripted operations, so there is history before the agent is ever switched on
+            def store = new AgentKnowledgeStore(new File(rootDir, "agente"))
+            NavigationAgent agent = NavigationAgent.create(configurations, new File(rootDir, "diagnostico/agent"), store)
+            // LLM navigation agent: null when OFF (default) or when it cannot run (e.g. no API key)
+            String agentMode = agent ? agent.mode : "OFF"
+            recorder = new ExecutionRecorder(mes, ano, agentMode, agent ? configurations.llmModel : null, new File(rootDir, "metricas"))
 
             executor = new ThreadPoolExecutor(
                     configurations.extractionThreads, // core pool size
@@ -89,7 +102,9 @@ class BaixaNotasChiquinhoAutomation {
             // keep a history of previous failures; the current file only holds this run's failures
             if (naoProcessadorFile.exists()) {
                 try {
-                    def stamp = new Date().format("yyyyMMdd-HHmmss")
+                    // java.time: Date.format() lives in groovy-dateutil (not on the classpath), so the old call threw
+                    // and the catch below silently deleted the previous run's failure list instead of archiving it
+                    def stamp = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
                     Files.move(naoProcessadorFile.toPath(),
                             new File(rootDir, "nao-processados.${stamp}.csv").toPath())
                 } catch (Exception ignored) {
@@ -143,21 +158,94 @@ class BaixaNotasChiquinhoAutomation {
 
                     Page currentPage = paginaInicial
 
-                    // Processes ONE franchise. Returns normally when handled (processed or recorded as
-                    // not-processed with a business reason). Throws on technical failure so it can be retried.
-                    def processarFranqueadora = { String franqueadora ->
+                    // Runs a scripted operation and records how long it took (successes and wait timeouts only).
+                    def medir = { String op, Closure c ->
+                        long t0 = System.nanoTime()
+                        try {
+                            def r = c.call()
+                            store.recordOperation(op, (System.nanoTime() - t0).intdiv(1_000_000L), false, configurations.waitingTimeout)
+                            return r
+                        } catch (Throwable e) {
+                            if (OperationTimer.isWaitTimeout(e)) {
+                                store.recordOperation(op, (System.nanoTime() - t0).intdiv(1_000_000L), true, configurations.waitingTimeout)
+                            }
+                            throw e
+                        }
+                    }
+
+                    // Geb waitFor() timeout for the duration of one call (used for the agent's tools)
+                    def withWait = { int secs, Closure c ->
+                        def antes = browser.config.defaultWaitTimeout
+                        browser.config.defaultWaitTimeout = secs
+                        try {
+                            return c.call()
+                        } finally {
+                            browser.config.defaultWaitTimeout = antes
+                        }
+                    }
+
+                    // Scripted navigation: leaves the browser on the "Consulta Cupom Fiscal PDV" screen of the franchise.
+                    def navegarScript = { String franqueadora ->
                         // 1) Select the franchise first, from whatever page we are on (the header exists everywhere).
                         //    The side menu only contains "Fiscal" once a franchise context is selected.
                         def paginaAtual = browser.page(MainPage)
-                        paginaAtual.header.franqueadoraMenu.click()
-                        paginaAtual.header.selecionarFranqueadora(franqueadora)
+                        medir('select_franqueadora') {
+                            paginaAtual.header.franqueadoraMenu.click()
+                            paginaAtual.header.selecionarFranqueadora(franqueadora)
+                        }
 
                         // 2) The query form can NOT be opened by URL ("Acesso negado"); reach it through the side menu.
                         //    If the switch kept us on the form already, there is nothing to navigate.
                         boolean naConsulta = $('div.headerTitle h4 span', text: 'Consulta Cupom Fiscal PDV').size() == 1
                         if (!naConsulta) {
-                            browser.page(MainPage).abrirConsultaNotaFiscalVendaPdv2()
+                            medir('open_consulta_pdv2_menu') {
+                                browser.page(MainPage).abrirConsultaNotaFiscalVendaPdv2()
+                            }
                         }
+                    }
+
+                    // LLM navigation: same end state as navegarScript, reached by the agent. Throws when it fails
+                    // so the retry loop treats it like any other technical failure.
+                    def navegarComAgente = { String franqueadora, String contexto ->
+                        def b = agent.budget
+                        long entrada0 = b.inputUsed
+                        long saida0 = b.outputUsed
+                        int chamadas0 = b.calls
+                        def r
+                        try {
+                        r = agent.navegar(franqueadora, contexto, browser.driver,
+                                { via(MainPage) },
+                                { int secs ->
+                                    withWait(secs) { browser.page(MainPage).abrirConsultaNotaFiscalVendaPdv2() }
+                                },
+                                { String f, int secs ->
+                                    withWait(secs) {
+                                        def p = browser.page(MainPage)
+                                        // the widget toggles the list: only click it when the list is not already open
+                                        boolean listaAberta = browser.driver.executeScript(
+                                                "var l = document.querySelector('#layout-header div.lista-empresas'); return !!(l && l.getClientRects().length);")
+                                        if (!listaAberta) {
+                                            p.header.franqueadoraMenu.click()
+                                        }
+                                        p.header.selecionarFranqueadora(f, Math.max(8, secs.intdiv(3)))
+                                    }
+                                })
+                        } finally {
+                            recorder.addAgentUsage(franqueadora, b.inputUsed - entrada0, b.outputUsed - saida0, b.calls - chamadas0)
+                        }
+                        if (r.success) {
+                            recorder.setViaAgente(franqueadora, r.reason == 'playbook' ? 'playbook' : 'agente')
+                        }
+                        if (!r.success) {
+                            throw new IllegalStateException("Agente não conseguiu navegar para ${franqueadora}: ${r.reason}")
+                        }
+                    }
+
+                    // Processes ONE franchise. Returns normally when handled (processed or recorded as
+                    // not-processed with a business reason). Throws on technical failure so it can be retried.
+                    // Only the navigation differs between script and agent; download/validation is always the same.
+                    def processarFranqueadora = { String franqueadora, Closure navegar ->
+                        navegar(franqueadora)
 
                         def consultaCupomFiscalPage = at ConsultaCupomFiscalPdv2Page
                         consultaCupomFiscalPage.mesSelect.click()
@@ -228,6 +316,7 @@ class BaixaNotasChiquinhoAutomation {
                             boolean submitted = submitWithTimeout(executor, {
                                 try {
                                     def result = ZipExtractor.extractAndValidate(newFile, targetDir)
+                                    recorder.addExtraction(franqueadora, result.xmlCount as int, result.zipBytes as long)
                                     newFile.delete()
                                     // only mark as processed AFTER validated extraction
                                     ZipExtractor.appendLine(processadosFile, franqueadora)
@@ -271,12 +360,33 @@ class BaixaNotasChiquinhoAutomation {
 
                         updateStatusList(statusList, new ExecutionStatus(franqueadora, "PROCESSING"), onStatusUpdate)
 
+                        recorder.begin(franqueadora)
                         boolean ok = false
+                        int tentativasFeitas = 0
+                        String etapaOk = null
                         Throwable lastError = null
-                        for (int attempt = 1; attempt <= MAX_ATTEMPTS && !ok; attempt++) {
+
+                        // Attempt plan. OFF: script x3 (original behaviour). FALLBACK: script x3, then the agent.
+                        // FULL: the agent first, then script x3 as the safety net.
+                        def navScript = { String f -> navegarScript(f) }
+                        def navAgente = { String f -> navegarComAgente(f, descreverFalha(lastError)) }
+                        def plano = []
+                        if (agentMode == "FULL") {
+                            plano << [label: "agente", nav: navAgente]
+                        }
+                        MAX_ATTEMPTS.times { plano << [label: "script", nav: navScript] }
+                        if (agentMode == "FALLBACK") {
+                            plano << [label: "agente", nav: navAgente]
+                        }
+                        int totalAttempts = plano.size()
+
+                        for (int attempt = 1; attempt <= totalAttempts && !ok; attempt++) {
+                            def etapa = plano[attempt - 1]
+                            tentativasFeitas = attempt
                             try {
-                                processarFranqueadora(franqueadora)
+                                processarFranqueadora(franqueadora, etapa.nav)
                                 ok = true
+                                etapaOk = etapa.label
                             } catch (InterruptedException e) {
                                 throw e
                             } catch (Throwable e) {
@@ -285,8 +395,8 @@ class BaixaNotasChiquinhoAutomation {
                                 }
                                 lastError = e
                                 salvarDiagnosticoFalha(franqueadora, attempt, browser.driver, e)
-                                log.warn "Falha em $franqueadora (tentativa $attempt/$MAX_ATTEMPTS): ${e.class.simpleName}: ${e.message?.readLines()?.first()}"
-                                if (attempt < MAX_ATTEMPTS) {
+                                log.warn "Falha em $franqueadora (tentativa $attempt/$totalAttempts, ${etapa.label}): ${e.class.simpleName}: ${e.message?.readLines()?.first()}"
+                                if (attempt < totalAttempts) {
                                     try {
                                         if (isSessionDead(e)) {
                                             log.warn "Sessão do navegador perdida. Reabrindo e fazendo login novamente..."
@@ -302,9 +412,12 @@ class BaixaNotasChiquinhoAutomation {
                             }
                         }
 
+                        recorder.endAttempts(franqueadora, tentativasFeitas,
+                                ok ? (etapaOk == 'agente' ? (recorder.getViaAgente(franqueadora) ?: 'agente') : 'script') : null)
+
                         if (!ok) {
                             hadErrors = true
-                            def msg = "Falha técnica após $MAX_ATTEMPTS tentativas em ${franqueadora}: ${lastError?.class?.simpleName}: ${lastError?.message?.readLines()?.first()}"
+                            def msg = "Falha técnica após $totalAttempts tentativas${agentMode != 'OFF' ? " (agente $agentMode)" : ''} em ${franqueadora}: ${lastError?.class?.simpleName}: ${lastError?.message?.readLines()?.first()}"
                             log.warn msg
                             handleNaoProcessado(msg, franqueadora, naoProcessadorFile, statusList, onStatusUpdate)
                             // try to get back to a clean state for the next franchise
@@ -336,7 +449,14 @@ class BaixaNotasChiquinhoAutomation {
                     executor.shutdown()
                     executor.awaitTermination(10, TimeUnit.MINUTES)
                     try { browser.quit() } catch (Throwable ignored) {}
+                    agent?.logResumo()
                 }
+            }
+
+            // Reconciliation: extraction runs async, so only now (executor drained) can we prove that every
+            // franchise ended up either processed or recorded as not-processed. Nothing may vanish silently.
+            if (reconciliar(statusList, franqueadorasFile, processadosFile, naoProcessadorFile, onStatusUpdate)) {
+                hadErrors = true
             }
             lastOutcome = hadErrors ? "COMPLETED_WITH_ERRORS" : "COMPLETED"
         } catch (InterruptedException e) {
@@ -351,7 +471,44 @@ class BaixaNotasChiquinhoAutomation {
             statusList.findAll { it.status in ["PENDING", "PROCESSING"] }.each {
                 updateStatusList(statusList, new ExecutionStatus(it.franqueadora, "NOT_PROCESSED", "Execução abortada: ${e.message?.readLines()?.first()}"), onStatusUpdate)
             }
+        } finally {
+            // never throws; an execution that crashed or was interrupted is recorded too
+            recorder?.save(lastOutcome, lastErrorMessage, statusList)
         }
+    }
+
+    /** Short, single-purpose description of the last failure, handed to the agent as context. */
+    private static String descreverFalha(Throwable e) {
+        if (e == null) {
+            return ""
+        }
+        Throwable root = e
+        while (root.cause != null && !root.cause.is(root)) { root = root.cause }
+        return "${e.class.simpleName}: ${e.message?.readLines()?.take(3)?.join(' ')}" +
+                (root.is(e) ? "" : "\nCausa raiz: ${root.class.simpleName}: ${root.message?.readLines()?.take(3)?.join(' ')}")
+    }
+
+    /**
+     * Every franchise listed must be in processados.csv or marked NOT_PROCESSED; anything else is recorded as
+     * not processed (with an ERROR log) so it shows up in nao-processados.csv.
+     * @return true when something was unaccounted for
+     */
+    private static boolean reconciliar(List<ExecutionStatus> statusList, File franqueadorasFile, File processadosFile,
+                                       File naoProcessadorFile, Closure onStatusUpdate) {
+        if (!franqueadorasFile.exists()) {
+            return false
+        }
+        def processadosAgora = processadosFile.exists() ? processadosFile.readLines()*.trim() : []
+        def naoProcessadas = statusList.findAll { it.status == "NOT_PROCESSED" }*.franqueadora
+        boolean semConta = false
+        franqueadorasFile.readLines().findAll { it.trim() }.each { String nome ->
+            if (!(nome in processadosAgora) && !(nome in naoProcessadas)) {
+                semConta = true
+                log.error "Reconciliação: franqueadora '$nome' sem resultado (nem processada nem registrada como não processada)"
+                handleNaoProcessado("Sem resultado ao final da execução (não processada)", nome, naoProcessadorFile, statusList, onStatusUpdate)
+            }
+        }
+        return semConta
     }
 
     /** Writes URL, stack trace (app frames + root cause), side-menu HTML and a screenshot for a failed attempt. */

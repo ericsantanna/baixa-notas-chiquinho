@@ -31,15 +31,23 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-websocket'
     implementation 'org.apache.groovy:groovy-json:4.0.14'
     implementation 'org.apache.groovy:groovy-yaml:4.0.28'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
 test {
-    useJUnitPlatform()
+    // Browser tests need Chrome + network (driver download): opt in with ./gradlew test -PbrowserTests
+    useJUnitPlatform {
+        if (!project.hasProperty('browserTests')) {
+            excludeTags 'browser'
+        }
+    }
 }
 
 jar {
     manifest {
-        attributes 'Main-Class': 'com.ericsantanna.baixaNotas.Main'
+        attributes 'Main-Class': 'com.ericsantanna.baixaNotasChiquinho.Main'
     }
 }
 

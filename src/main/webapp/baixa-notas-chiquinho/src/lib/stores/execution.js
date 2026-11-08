@@ -31,6 +31,7 @@ function createExecutionStore() {
 
     let unsubscribeStatus = null;
     let unsubscribeConnection = null;
+    let statusPoll = null;
 
     return {
         subscribe,
@@ -56,9 +57,21 @@ function createExecutionStore() {
             
             // Connect WebSocket
             executionWebSocketService.connect();
+
+            // The websocket only carries the franqueadora list. The run outcome (done / done with
+            // pending items / failed) is set after the last message, so poll it.
+            if (!statusPoll) {
+                statusPoll = setInterval(() => {
+                    this.fetchStatus().catch(() => {});
+                }, 2000);
+            }
         },
         
         disconnect() {
+            if (statusPoll) {
+                clearInterval(statusPoll);
+                statusPoll = null;
+            }
             // Clean up listeners
             if (unsubscribeStatus) {
                 unsubscribeStatus();
