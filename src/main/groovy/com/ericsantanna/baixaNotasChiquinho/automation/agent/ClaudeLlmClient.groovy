@@ -29,6 +29,11 @@ class ClaudeLlmClient implements LlmClient {
 
     @Override
     AgentTurn next(String system, List<Map> messages, List<Map> tools) {
+        return next(system, messages, tools, Long.MAX_VALUE)
+    }
+
+    @Override
+    AgentTurn next(String system, List<Map> messages, List<Map> tools, long deadlineMillis) {
         // cache_control on the last tool + system: stable prefix is re-read cheaply on every step
         List<Map> toolDefs = tools.collect { new LinkedHashMap(it) }
         if (toolDefs) {
@@ -46,16 +51,20 @@ class ClaudeLlmClient implements LlmClient {
         }
         String body = JsonOutput.toJson(payload)
 
-        HttpRequest request = HttpRequest.newBuilder(URI.create(url))
-                .timeout(Duration.ofSeconds(60))
-                .header('x-api-key', apiKey)
-                .header('anthropic-version', API_VERSION)
-                .header('content-type', 'application/json')
-                .POST(HttpRequest.BodyPublishers.ofString(body))
-                .build()
-
         LlmException last = null
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            // never let a single call (or its retries) run past the caller's wall-clock deadline
+            long remaining = deadlineMillis - System.currentTimeMillis()
+            if (remaining <= 0) {
+                throw last ?: new LlmException('tempo limite do agente atingido antes da chamada ao LLM')
+            }
+            HttpRequest request = HttpRequest.newBuilder(URI.create(url))
+                    .timeout(Duration.ofMillis(Math.min(60_000L, remaining)))
+                    .header('x-api-key', apiKey)
+                    .header('anthropic-version', API_VERSION)
+                    .header('content-type', 'application/json')
+                    .POST(HttpRequest.BodyPublishers.ofString(body))
+                    .build()
             try {
                 HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString())
                 int status = response.statusCode()
@@ -76,7 +85,8 @@ class ClaudeLlmClient implements LlmClient {
             }
             if (attempt < maxAttempts) {
                 log.warn "LLM indisponível (${last.message}); nova tentativa ${attempt + 1}/${maxAttempts}"
-                Thread.sleep(retryBaseMillis * attempt)
+                long pause = Math.min(retryBaseMillis * attempt, Math.max(0L, deadlineMillis - System.currentTimeMillis()))
+                Thread.sleep(pause)
             }
         }
         throw last

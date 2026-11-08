@@ -11,6 +11,14 @@ interface LlmClient {
      * @param tools    tool specs ([name:, description:, input_schema:])
      */
     AgentTurn next(String system, List<Map> messages, List<Map> tools)
+
+    /**
+     * Same as {@link #next(String, List, List)} but the call must not run past {@code deadlineMillis}
+     * (epoch millis). Implementations that cannot honour it just ignore the deadline.
+     */
+    default AgentTurn next(String system, List<Map> messages, List<Map> tools, long deadlineMillis) {
+        return next(system, messages, tools)
+    }
 }
 
 /** One model response. */

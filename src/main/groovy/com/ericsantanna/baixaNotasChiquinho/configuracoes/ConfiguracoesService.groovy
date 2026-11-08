@@ -30,9 +30,14 @@ class ConfiguracoesService {
             configuracoes.agentMaxSteps = positive(request.agentMaxSteps, Configuracoes.DEFAULT_AGENT_MAX_STEPS)
             configuracoes.agentTimeoutSeconds = positive(request.agentTimeoutSeconds, Configuracoes.DEFAULT_AGENT_TIMEOUT_SECONDS)
             configuracoes.agentMaxTokensPerRun = positive(request.agentMaxTokensPerRun, Configuracoes.DEFAULT_AGENT_MAX_TOKENS_PER_RUN)
-            // the UI only ever sees a masked key; a blank/masked value means "keep the stored one"
+            // the UI only ever sees a masked key: missing (null) or masked ("****...") keeps the stored one,
+            // an explicitly empty value clears it, anything else replaces it
             String submittedKey = request.llmApiKey?.trim()
-            configuracoes.llmApiKey = (submittedKey && !submittedKey.startsWith("****")) ? submittedKey : getConfiguracoes().llmApiKey
+            if (submittedKey == null || submittedKey.startsWith("****")) {
+                configuracoes.llmApiKey = getConfiguracoes().llmApiKey
+            } else {
+                configuracoes.llmApiKey = submittedKey ?: null
+            }
 
             def configPath = Configuracoes.DEFAULT_CONFIG_PATH
             configuracoes.rootPath.mkdirs()

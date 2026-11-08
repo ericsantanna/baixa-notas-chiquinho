@@ -1,7 +1,9 @@
 package com.ericsantanna.baixaNotasChiquinho.appConfig
 
 import com.ericsantanna.baixaNotasChiquinho.configuracoes.Configuracoes
+import com.ericsantanna.baixaNotasChiquinho.configuracoes.ConfiguracoesService
 import groovy.util.logging.Slf4j
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.context.event.ApplicationReadyEvent
 import org.springframework.context.event.EventListener
 import org.springframework.stereotype.Component
@@ -19,9 +21,13 @@ import java.nio.file.Path
 @Component
 class DiagnosticoCleaner {
 
+    @Autowired
+    ConfiguracoesService configuracoesService
+
     @EventListener(ApplicationReadyEvent)
     void aoIniciar() {
-        limpar(new File(Configuracoes.DEFAULT_ROOT_PATH, "diagnostico"))
+        File root = configuracoesService?.getConfiguracoes()?.rootPath ?: Configuracoes.DEFAULT_ROOT_PATH
+        limpar(new File(root, "diagnostico"))
     }
 
     /** @return number of files removed. Never throws: a cleanup problem must not stop the app. */

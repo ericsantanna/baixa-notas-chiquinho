@@ -394,7 +394,7 @@ class BaixaNotasChiquinhoAutomation {
                                     throw new InterruptedException("Execução interrompida")
                                 }
                                 lastError = e
-                                salvarDiagnosticoFalha(franqueadora, attempt, browser.driver, e)
+                                salvarDiagnosticoFalha(rootDir, franqueadora, attempt, browser.driver, e)
                                 log.warn "Falha em $franqueadora (tentativa $attempt/$totalAttempts, ${etapa.label}): ${e.class.simpleName}: ${e.message?.readLines()?.first()}"
                                 if (attempt < totalAttempts) {
                                     try {
@@ -499,9 +499,9 @@ class BaixaNotasChiquinhoAutomation {
             return false
         }
         def processadosAgora = processadosFile.exists() ? processadosFile.readLines()*.trim() : []
-        def naoProcessadas = statusList.findAll { it.status == "NOT_PROCESSED" }*.franqueadora
+        def naoProcessadas = statusList.findAll { it.status == "NOT_PROCESSED" }*.franqueadora*.trim()
         boolean semConta = false
-        franqueadorasFile.readLines().findAll { it.trim() }.each { String nome ->
+        franqueadorasFile.readLines()*.trim().findAll { it }.each { String nome ->
             if (!(nome in processadosAgora) && !(nome in naoProcessadas)) {
                 semConta = true
                 log.error "Reconciliação: franqueadora '$nome' sem resultado (nem processada nem registrada como não processada)"
@@ -512,9 +512,9 @@ class BaixaNotasChiquinhoAutomation {
     }
 
     /** Writes URL, stack trace (app frames + root cause), side-menu HTML and a screenshot for a failed attempt. */
-    private static void salvarDiagnosticoFalha(String franqueadora, int attempt, driver, Throwable e) {
+    private static void salvarDiagnosticoFalha(File rootDir, String franqueadora, int attempt, driver, Throwable e) {
         try {
-            def dir = new File(Configuracoes.DEFAULT_ROOT_PATH, "diagnostico")
+            def dir = new File(rootDir, "diagnostico")
             dir.mkdirs()
             def safe = franqueadora.replaceAll(/[^A-Za-z0-9]+/, "_")
             def sb = new StringBuilder()

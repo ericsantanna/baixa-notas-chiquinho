@@ -37,7 +37,7 @@ class ConfiguracoesController {
 
         String agentMode
         String llmModel
-        /** Blank or starting with "****" means "keep the stored key". */
+        /** Absent or starting with "****" means "keep the stored key"; an empty string clears it. */
         String llmApiKey
         Integer agentMaxSteps
         Integer agentTimeoutSeconds

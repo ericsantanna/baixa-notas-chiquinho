@@ -90,6 +90,9 @@ Você escreve lições operacionais curtas para um agente de automação de nave
             log.info "Agente: reproduzindo playbook para ${franqueadora}"
             boolean replayed = playbook.replay(franqueadora, port, objetivo, timer)
             store?.recordReplay(replayed)
+            if (!replayed && store != null && store.loadPlaybook() == null) {
+                playbook = null // the store discarded it after repeated failures; stop replaying a dead playbook
+            }
             if (replayed) {
                 return new AgentResult(success: true, reason: 'playbook', steps: playbook.steps.size(), usedTokens: budget.used)
             }

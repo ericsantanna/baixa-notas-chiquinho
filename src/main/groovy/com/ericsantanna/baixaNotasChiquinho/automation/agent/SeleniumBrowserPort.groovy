@@ -39,7 +39,15 @@ class SeleniumBrowserPort implements BrowserPort {
         String text = (el.getAttribute('textContent') ?: el.getAttribute('title') ?: '').replaceAll(/\s+/, ' ').trim()
         String href = el.getAttribute('href') ?: ''
 
-        String bloqueio = motivoBloqueio(text, href)
+        // a big container can mention "Sair" deep inside and still be a legitimate navigation target; judge
+        // short labels by their full text and containers by their own text/title/aria-label only
+        String rotulo = text
+        if (text.length() > 40) {
+            rotulo = (js("var e = arguments[0]; return Array.prototype.filter.call(e.childNodes, function (n) { return n.nodeType === 3; })" +
+                    ".map(function (n) { return n.textContent; }).join(' ') + ' ' + (e.getAttribute('title') || '') + ' ' + " +
+                    "(e.getAttribute('aria-label') || '') + ' ' + (e.value || '');", el) as String ?: '').replaceAll(/\s+/, ' ').trim()
+        }
+        String bloqueio = motivoBloqueio(rotulo, href)
         if (bloqueio) {
             throw new AgentToolException(bloqueio)
         }
@@ -108,10 +116,14 @@ class SeleniumBrowserPort implements BrowserPort {
         if (text && (text =~ /(?i)\b(sair|logout|logoff|excluir|apagar|remover|deletar|cancelar)\b/).find()) {
             return "Ação bloqueada por segurança: o elemento \"${text.take(40)}\" não pode ser clicado pelo agente."
         }
-        if (href && (href =~ /(?i)^https?:/).find()) {
+        if (href && (href =~ /(?i)^\s*(data|vbscript):/).find()) {
+            return 'Link com script bloqueado.'
+        }
+        if (href && (href =~ /(?i)^\s*(https?:)?\/\//).find()) {
             String host
             try {
-                host = new URI(href).host?.toLowerCase()
+                String abs = href.trim().startsWith('//') ? 'https:' + href.trim() : href.trim()
+                host = new URI(abs).host?.toLowerCase()
             } catch (Exception ignored) {
                 host = null
             }

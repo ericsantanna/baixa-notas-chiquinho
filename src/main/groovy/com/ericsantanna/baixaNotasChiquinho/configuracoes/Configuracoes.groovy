@@ -43,7 +43,7 @@ class Configuracoes {
                 agentMode: agentMode, llmProvider: llmProvider, llmModel: llmModel,
                 agentMaxSteps: agentMaxSteps, agentTimeoutSeconds: agentTimeoutSeconds,
                 agentMaxTokensPerRun: agentMaxTokensPerRun)
-        copy.llmApiKey = llmApiKey ? "****" + llmApiKey.takeRight(4) : null
+        copy.llmApiKey = llmApiKey ? (llmApiKey.length() > 12 ? "****" + llmApiKey.takeRight(4) : "****") : null
         return copy
     }
 }

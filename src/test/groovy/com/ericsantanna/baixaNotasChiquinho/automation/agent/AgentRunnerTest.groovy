@@ -127,12 +127,23 @@ class AgentRunnerTest {
     @Test
     void repeatingTheSameUselessActionIsDetectedAsALoop() {
         def browser = new FakeBrowser(observations: [Obs.page('A', [1: 'a'])])
-        def llm = new ScriptedLlm(script: [[name: 'wait', input: [seconds: 1]]])
+        def llm = new ScriptedLlm(script: [[name: 'scroll', input: [direction: 'down']]])
 
         def result = runner(llm, browser).run('A', 'goal', null, { false })
 
         assert !result.success
         assert result.reason.contains('repetindo')
+    }
+
+    @Test
+    void waitMayBeRepeatedOnAnUnchangedPage() {
+        def browser = new FakeBrowser(observations: [Obs.page('A', [1: 'a'])])
+        def llm = new ScriptedLlm(script: [[name: 'wait', input: [seconds: 1]]])
+
+        def result = runner(llm, browser).run('A', 'goal', null, { false })
+
+        assert !result.success
+        assert !result.reason.contains('repetindo')
     }
 
     @Test
