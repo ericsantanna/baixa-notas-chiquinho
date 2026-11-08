@@ -361,9 +361,9 @@
                         Uma IA (Claude, da Anthropic) ajuda quando o script automático não consegue chegar na tela de consulta de uma franqueadora.
                     </p>
                     <p class="field-description">
-                        <b>Desligado:</b> só o script trabalha, como sempre foi.<br/>
-                        <b>Reforço:</b> a IA só entra depois que as 3 tentativas do script falharem. Só gera custo quando algo dá errado.<br/>
-                        <b>Completo:</b> a IA navega primeiro; se ela falhar, o script assume.
+                        <b>Desligado:</b> Só o script trabalha, sem IA, determinístico.<br/>
+                        <b>Reforço:</b> A IA só entra depois que as todas as tentativas do script falharem. Só gera custo quando algo dá errado.<br/>
+                        <b>Completo:</b> A IA controla tudo; se ela falhar, o script assume.
                     </p>
                     <p class="field-description">
                         O download, a extração e a validação das notas continuam sendo feitos pelo programa. A IA só vê o texto das telas, sem CNPJ, CPF ou valores.
